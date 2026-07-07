@@ -628,6 +628,147 @@ std::vector<TokenIDs> PiperPhonemizeLexicon::ConvertTextToTokenIdsVits(
   return ans;
 }
 
+// ========== Phoneme timing adaptation ==========
+std::vector<PhonemeSpan> PiperPhonemizeLexicon::ConvertTextToPhonemeSpans(
+    const std::string &text, const std::string &voice /*= ""*/) const {
+  // 1. Phonemize the text (same as ConvertTextToTokenIds)
+  piper::eSpeakPhonemeConfig config;
+  config.voice = voice.empty() ? "en-us" : voice;
+
+  std::vector<std::vector<piper::Phoneme>> phonemes;
+  CallPhonemizeEspeak(text, config, &phonemes);
+
+  if (phonemes.empty()) {
+    return {};
+  }
+
+  // 2. Build PhonemeSpan list.
+  //    We process each sentence's phoneme list and track token offset.
+  //    The mapping from phoneme to token(s) depends on the model type.
+  std::vector<PhonemeSpan> spans;
+  int32_t token_offset = 0;  // accumulated across sentences
+
+  for (const auto &sentence_phonemes : phonemes) {
+    if (is_matcha_) {
+      // Matcha: each phoneme → 1 token (no BOS/EOS in the middle,
+      // only around the whole sentence). We insert BOS/EOS at sentence level.
+      // We'll count tokens: 1 per phoneme, + BOS/EOS if use_eos_bos.
+      if (matcha_meta_data_.use_eos_bos) {
+        // BOS token
+        ++token_offset;  // bos
+      }
+      for (size_t i = 0; i < sentence_phonemes.size(); ++i) {
+        PhonemeSpan span;
+        span.phoneme = Utf32ToUtf8(sentence_phonemes[i]);
+        span.start_token = token_offset;
+        span.end_token = token_offset + 1;
+        spans.push_back(span);
+        ++token_offset;
+      }
+      if (matcha_meta_data_.use_eos_bos) {
+        ++token_offset;  // eos
+      }
+
+    } else if (is_kokoro_) {
+      // Kokoro/Kitten path: uses PiperPhonemesToIdsKokoroOrKitten
+      // This adds a leading 0 (BOS) and trailing 0 (EOS), and each phoneme → 1 token.
+      ++token_offset;  // bos (token 0)
+      for (size_t i = 0; i < sentence_phonemes.size(); ++i) {
+        PhonemeSpan span;
+        span.phoneme = Utf32ToUtf8(sentence_phonemes[i]);
+        span.start_token = token_offset;
+        span.end_token = token_offset + 1;
+        spans.push_back(span);
+        ++token_offset;
+
+        // if phoneme is '.' , Kokoro adds a space token after it.
+        if (sentence_phonemes[i] == '.') {
+          ++token_offset;  // skip the space token
+        }
+      }
+      ++token_offset;  // eos (token 0)
+
+    } else if (is_kitten_) {
+      // Kitten path: uses PiperPhonemesToIdsKitten
+      // Leading start_id, trailing end_id (and optional pad_id).
+      ++token_offset;  // start_id
+      for (size_t i = 0; i < sentence_phonemes.size(); ++i) {
+        PhonemeSpan span;
+        span.phoneme = Utf32ToUtf8(sentence_phonemes[i]);
+        span.start_token = token_offset;
+        span.end_token = token_offset + 1;
+        spans.push_back(span);
+        ++token_offset;
+
+        // '.' adds an extra space token
+        if (sentence_phonemes[i] == '.') {
+          ++token_offset;
+        }
+      }
+      ++token_offset;  // end_id
+      if (kitten_meta_data_.add_pad_after_end) {
+        ++token_offset;  // pad_id
+      }
+
+    } else {
+      // VITS path (piper/icefall/coqui)
+      bool is_piper = vits_meta_data_.is_piper || vits_meta_data_.is_icefall;
+      bool is_coqui = vits_meta_data_.is_coqui;
+
+      if (is_piper) {
+        // PiperPhonemesToIdsVits: BOS, then for each phoneme: [id, pad], then EOS.
+        ++token_offset;  // bos
+        for (size_t i = 0; i < sentence_phonemes.size(); ++i) {
+          PhonemeSpan span;
+          span.phoneme = Utf32ToUtf8(sentence_phonemes[i]);
+          // phoneme token
+          span.start_token = token_offset;
+          ++token_offset;
+          // pad token
+          span.end_token = token_offset + 1;  // inclusive of the pad token
+          ++token_offset;
+          spans.push_back(span);
+        }
+        ++token_offset;  // eos
+
+      } else if (is_coqui) {
+        // CoquiPhonemesToIds: similar to piper but may have add_blank.
+        bool add_blank = vits_meta_data_.add_blank;
+        bool use_eos_bos = vits_meta_data_.use_eos_bos;
+
+        if (use_eos_bos) {
+          ++token_offset;  // bos
+        }
+        if (add_blank) {
+          ++token_offset;  // initial blank
+        }
+        for (size_t i = 0; i < sentence_phonemes.size(); ++i) {
+          PhonemeSpan span;
+          span.phoneme = Utf32ToUtf8(sentence_phonemes[i]);
+          span.start_token = token_offset;  // phoneme id
+          ++token_offset;
+          if (add_blank) {
+            // following blank
+            span.end_token = token_offset + 1;
+            ++token_offset;
+          } else {
+            span.end_token = span.start_token + 1;
+          }
+          spans.push_back(span);
+        }
+        // comma token after loop
+        ++token_offset;  // comma
+        if (use_eos_bos) {
+          ++token_offset;  // eos
+        }
+      }
+    }
+  }
+
+  return spans;
+}
+// =================================================
+
 #if __ANDROID_API__ >= 9
 template PiperPhonemizeLexicon::PiperPhonemizeLexicon(
     AAssetManager *mgr, const std::string &tokens, const std::string &data_dir,
