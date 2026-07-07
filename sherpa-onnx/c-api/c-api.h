@@ -2448,7 +2448,30 @@ typedef struct SherpaOnnxOfflineTtsConfig {
   const char *rule_fars;
   /** Default silence scale between sentences. */
   float silence_scale;
+
+  // ========== Phoneme timing adaptation ==========
+  /**
+   * If non‑zero, the generated audio will contain timed phoneme data
+   * in the `phonemes` field.  Used for avatar lip‑sync.
+   */
+  int32_t enable_timed_phonemes;
+  // =================================================
 } SherpaOnnxOfflineTtsConfig;
+
+// ========== Phoneme timing adaptation ==========
+/**
+ * @brief One timed phoneme for lip‑sync.
+ *
+ * The array of these is stored in SherpaOnnxGeneratedAudio::phonemes
+ * when @c enable_timed_phonemes is non‑zero in the config.
+ */
+typedef struct SherpaOnnxTimedPhoneme {
+  const char *phoneme;      /**< ARPAbet phoneme, e.g. "HH", "AH" */
+  int32_t id;               /**< 1‑based sequence ID */
+  float start_second;       /**< Start time in seconds */
+  float end_second;         /**< End time in seconds */
+} SherpaOnnxTimedPhoneme;
+// =================================================
 
 /**
  * @brief Generated waveform returned by TTS APIs.
@@ -2464,6 +2487,18 @@ typedef struct SherpaOnnxGeneratedAudio {
   int32_t n;
   /** Output sample rate. */
   int32_t sample_rate;
+
+  // ========== Phoneme timing adaptation ==========
+  /**
+   * Optional array of timed phonemes.
+   * Valid only when num_phonemes > 0 and config.enable_timed_phonemes was set.
+   * The array and its strings are owned by this struct and are freed by
+   * SherpaOnnxDestroyOfflineTtsGeneratedAudio().
+   */
+  const SherpaOnnxTimedPhoneme *phonemes;
+  /** Number of phonemes in @c phonemes. 0 if no phoneme data is available. */
+  int32_t num_phonemes;
+  // =================================================
 } SherpaOnnxGeneratedAudio;
 
 /**
