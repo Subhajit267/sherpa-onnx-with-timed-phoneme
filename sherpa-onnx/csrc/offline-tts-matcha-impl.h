@@ -1,6 +1,10 @@
 // sherpa-onnx/csrc/offline-tts-matcha-impl.h
 //
 // Copyright (c)  2024  Xiaomi Corporation
+//
+// Phoneme timing adaptation:
+//   Added GetFrontend() override to expose the frontend pointer so that
+//   the shared timing logic in OfflineTts can retrieve phoneme spans.
 #ifndef SHERPA_ONNX_CSRC_OFFLINE_TTS_MATCHA_IMPL_H_
 #define SHERPA_ONNX_CSRC_OFFLINE_TTS_MATCHA_IMPL_H_
 
@@ -396,6 +400,15 @@ class OfflineTtsMatchaImpl : public OfflineTtsImpl {
     gen_config.silence_scale = config_.silence_scale;
     return Generate(text, gen_config, std::move(callback));
   }
+
+  // ========== Phoneme timing adaptation ==========
+  /** Returns a pointer to the frontend. Used by OfflineTts to obtain
+   *  phoneme spans for timed phoneme output.
+   */
+  OfflineTtsFrontend *GetFrontend() const override {
+    return frontend_.get();
+  }
+  // =================================================
 
  private:
   template <typename Manager>
