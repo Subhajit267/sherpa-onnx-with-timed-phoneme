@@ -1587,6 +1587,11 @@ static sherpa_onnx::OfflineTtsConfig GetOfflineTtsConfig(
   tts_config.max_num_sentences = SHERPA_ONNX_OR(config->max_num_sentences, 1);
   tts_config.silence_scale = SHERPA_ONNX_OR(config->silence_scale, 0.2);
 
+  // ========== Phoneme timing adaptation ==========
+  tts_config.enable_timed_phonemes =
+      SHERPA_ONNX_OR(config->enable_timed_phonemes, 0);
+  // =================================================
+  
   if (tts_config.model.debug) {
 #if __OHOS__
     SHERPA_ONNX_LOGE("%{public}s\n", tts_config.ToString().c_str());
@@ -1650,6 +1655,24 @@ static const SherpaOnnxGeneratedAudio *SherpaOnnxOfflineTtsGenerateInternal(
   ans->n = audio.samples.size();
   ans->sample_rate = audio.sample_rate;
 
+  // ========== Phoneme timing adaptation ==========
+  ans->num_phonemes = 0;
+  ans->phonemes = nullptr;
+  if (!audio.phonemes.empty()) {
+    ans->num_phonemes = static_cast<int32_t>(audio.phonemes.size());
+    SherpaOnnxTimedPhoneme *tmp = (SherpaOnnxTimedPhoneme *)malloc(
+      ans->num_phonemes * sizeof(SherpaOnnxTimedPhoneme));
+    for (int32_t i = 0; i < ans->num_phonemes; ++i) {
+      const auto &tp = audio.phonemes[i];
+      tmp[i].phoneme = strdup(tp.phoneme.c_str());
+      tmp[i].id = tp.id;
+      tmp[i].start_second = tp.start_second;
+      tmp[i].end_second = tp.end_second;
+    }
+    ans->phonemes = tmp;
+  }
+  // =================================================
+  
   return ans;
 }
 
@@ -1707,6 +1730,24 @@ static const SherpaOnnxGeneratedAudio *SherpaOnnxOfflineTtsGenerateInternal(
   ans->n = audio.samples.size();
   ans->sample_rate = audio.sample_rate;
 
+  // ========== Phoneme timing adaptation ==========
+  ans->num_phonemes = 0;
+  ans->phonemes = nullptr;
+  if (!audio.phonemes.empty()) {
+    ans->num_phonemes = static_cast<int32_t>(audio.phonemes.size());
+    SherpaOnnxTimedPhoneme *tmp = (SherpaOnnxTimedPhoneme *)malloc(
+      ans->num_phonemes * sizeof(SherpaOnnxTimedPhoneme));
+    for (int32_t i = 0; i < ans->num_phonemes; ++i) {
+      const auto &tp = audio.phonemes[i];
+      tmp[i].phoneme = strdup(tp.phoneme.c_str());
+      tmp[i].id = tp.id;
+      tmp[i].start_second = tp.start_second;
+      tmp[i].end_second = tp.end_second;
+    }
+    ans->phonemes = tmp;   // OK: assigning non‑const pointer to const pointer
+  }
+  // =================================================
+  
   return ans;
 }
 
@@ -1876,6 +1917,9 @@ const SherpaOnnxGeneratedAudio *SherpaOnnxOfflineTtsGenerateWithZipvoice(
   }
 
   auto *ans = new SherpaOnnxGeneratedAudio;
+  ans->num_phonemes = 0;       
+  ans->phonemes = nullptr;    
+  
   ans->sample_rate = static_cast<int32_t>(out.sample_rate);
   ans->n = static_cast<int32_t>(out.samples.size());
 
@@ -1922,6 +1966,14 @@ void SherpaOnnxDestroyOfflineTtsGeneratedAudio(
     const SherpaOnnxGeneratedAudio *p) {
   if (p) {
     delete[] p->samples;
+    // ========== Phoneme timing adaptation ==========
+    if (p->phonemes) {
+      for (int32_t i = 0; i < p->num_phonemes; ++i) {
+        free((void*)p->phonemes[i].phoneme);
+      }
+      free((void*)p->phonemes);
+    }
+    // =================================================
     delete p;
   }
 }
