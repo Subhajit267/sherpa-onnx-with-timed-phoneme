@@ -54,6 +54,11 @@ class PiperPhonemizeLexicon : public OfflineTtsFrontend {
   std::vector<TokenIDs> ConvertTextToTokenIds(
       const std::string &text, const std::string &voice = "") const override;
 
+  // ========== Phoneme timing adaptation ==========
+  std::vector<PhonemeSpan> ConvertTextToPhonemeSpans(
+      const std::string &text, const std::string &voice = "") const override;
+  // =================================================
+
  private:
   std::vector<TokenIDs> ConvertTextToTokenIdsVits(
       const std::string &text, const std::string &voice = "") const;
