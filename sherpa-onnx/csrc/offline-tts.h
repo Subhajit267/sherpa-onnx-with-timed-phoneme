@@ -1,6 +1,14 @@
 // sherpa-onnx/csrc/offline-tts.h
 //
 // Copyright (c)  2023  Xiaomi Corporation
+//
+// Phoneme timing adaptation:
+//   This file defines the data structures for timed phoneme output
+//   (PhonemeSpan, TimedPhoneme) and the optional config flag
+//   enable_timed_phonemes.  They are used in a model‑agnostic way:
+//   every TTS frontend may optionally produce phoneme spans,
+//   and uniform token durations are applied as a fallback.
+//   See Generate() in offline-tts.cc for the integration point.
 #ifndef SHERPA_ONNX_CSRC_OFFLINE_TTS_H_
 #define SHERPA_ONNX_CSRC_OFFLINE_TTS_H_
 
@@ -15,6 +23,31 @@
 #include "sherpa-onnx/csrc/parse-options.h"
 
 namespace sherpa_onnx {
+
+// ========== Phoneme timing structures (added) ==========
+/** @brief Maps a phoneme to a range of token indices.
+ *
+ *  start_token is inclusive, end_token is exclusive.
+ *  Tokens are the IDs fed to the TTS model.
+ */
+struct PhonemeSpan {
+  std::string phoneme;    ///< ARPAbet phoneme, e.g. "HH", "AH"
+  int32_t start_token;    ///< first token of this phoneme
+  int32_t end_token;      ///< one past the last token
+};
+
+/** @brief Timed phoneme ready for lip‑sync.
+ *
+ *  id is a 1‑based sequential identifier.
+ *  start_second and end_second are relative to the generated audio.
+ */
+struct TimedPhoneme {
+  std::string phoneme;
+  int32_t id;
+  float start_second;
+  float end_second;
+};
+// ========================================================
 
 struct OfflineTtsConfig {
   OfflineTtsModelConfig model;
@@ -38,15 +71,22 @@ struct OfflineTtsConfig {
   // the duration of the new interval is old_duration * silence_scale.
   float silence_scale = 0.2;
 
+  // ========== Phoneme timing adaptation ==========
+  /** When true, GeneratedAudio::phonemes will be populated. */
+  bool enable_timed_phonemes = false;
+  // =================================================
+
   OfflineTtsConfig() = default;
   OfflineTtsConfig(const OfflineTtsModelConfig &model,
                    const std::string &rule_fsts, const std::string &rule_fars,
-                   int32_t max_num_sentences, float silence_scale)
+                   int32_t max_num_sentences, float silence_scale,
+                   bool enable_timed_phonemes = false)   // <-- added
       : model(model),
         rule_fsts(rule_fsts),
         rule_fars(rule_fars),
         max_num_sentences(max_num_sentences),
-        silence_scale(silence_scale) {}
+        silence_scale(silence_scale),
+        enable_timed_phonemes(enable_timed_phonemes) {}   // <-- added
 
   void Register(ParseOptions *po);
   bool Validate() const;
@@ -62,6 +102,11 @@ struct GeneratedAudio {
   // If scale > 1, then it increases the duration of a pause
   // If scale < 1, then it reduces the duration of a pause
   GeneratedAudio ScaleSilence(float scale) const;
+
+  // ========== Phoneme timing adaptation ==========
+  /** Optional timed phoneme sequence. Empty if not requested or unavailable. */
+  std::vector<TimedPhoneme> phonemes;
+  // =================================================
 };
 
 struct GenerationConfig {
@@ -157,6 +202,7 @@ class OfflineTts {
 
  private:
   std::unique_ptr<OfflineTtsImpl> impl_;
+  OfflineTtsConfig config_;   // NEW: stored for timed phoneme access
 };
 
 }  // namespace sherpa_onnx
