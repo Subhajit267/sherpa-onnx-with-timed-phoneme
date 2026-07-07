@@ -1,6 +1,10 @@
 // sherpa-onnx/csrc/offline-tts-zipvoice-impl.h
 //
 // Copyright (c)  2025  Xiaomi Corporation
+//
+// Phoneme timing adaptation:
+//   Added GetFrontend() override to expose the frontend pointer so that
+//   the shared timing logic in OfflineTts can retrieve phoneme spans.
 #ifndef SHERPA_ONNX_CSRC_OFFLINE_TTS_ZIPVOICE_IMPL_H_
 #define SHERPA_ONNX_CSRC_OFFLINE_TTS_ZIPVOICE_IMPL_H_
 
@@ -252,6 +256,15 @@ class OfflineTtsZipvoiceImpl : public OfflineTtsImpl {
     config.reference_sample_rate = sample_rate;
     return Generate(text, config, std::move(callback));
   }
+
+  // ========== Phoneme timing adaptation ==========
+  /** Returns a pointer to the frontend. Used by OfflineTts to obtain
+   *  phoneme spans for timed phoneme output.
+   */
+  OfflineTtsFrontend *GetFrontend() const override {
+    return frontend_.get();
+  }
+  // =================================================
 
  private:
   void PostInit() { InitMelBanks(); }
