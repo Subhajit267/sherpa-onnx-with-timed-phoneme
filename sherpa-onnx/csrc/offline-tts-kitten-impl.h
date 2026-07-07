@@ -4,7 +4,7 @@
 //
 // Phoneme timing adaptation:
 //   Added GetFrontend() override to expose the frontend pointer so that
-//   the shared timing logic in OfflineTts can retrieve phoneme spans.
+//   the shared timing logic in OfflineTts can retrieve phoneme spans. 
 #ifndef SHERPA_ONNX_CSRC_OFFLINE_TTS_KITTEN_IMPL_H_
 #define SHERPA_ONNX_CSRC_OFFLINE_TTS_KITTEN_IMPL_H_
 
