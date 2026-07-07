@@ -1,6 +1,12 @@
 // sherpa-onnx/c-api/cxx-api.cc
 //
 // Copyright (c)  2024  Xiaomi Corporation
+
+// Phoneme timing adaptation:
+//   Added phoneme copying from the C audio struct into GeneratedAudio.
+//   When enableTimedPhonemes is set, the Generate methods extract the
+//   phoneme array before freeing the C audio.
+
 #include "sherpa-onnx/c-api/cxx-api.h"
 
 #include <algorithm>
@@ -125,7 +131,7 @@ OnlineRecognizer OnlineRecognizer::Create(
 
   c.rule_fsts = config.rule_fsts.c_str();
   c.rule_fars = config.rule_fars.c_str();
-
+  
   c.blank_penalty = config.blank_penalty;
 
   c.hotwords_buf = config.hotwords_buf.c_str();
@@ -565,6 +571,10 @@ OfflineTts OfflineTts::Create(const OfflineTtsConfig &config) {
   c.silence_scale = config.silence_scale;
   c.rule_fars = config.rule_fars.c_str();
 
+  // ========== Phoneme timing adaptation ==========
+  c.enable_timed_phonemes = config.enable_timed_phonemes ? 1 : 0;
+  // =================================================
+    
   auto p = SherpaOnnxCreateOfflineTts(&c);
   return OfflineTts(p);
 }
@@ -606,6 +616,18 @@ GeneratedAudio OfflineTts::Generate(const std::string &text,
   ans.samples = std::vector<float>{audio->samples, audio->samples + audio->n};
   ans.sample_rate = audio->sample_rate;
 
+  // ========== Phoneme timing adaptation ==========
+  if (audio->phonemes && audio->num_phonemes > 0) {
+    ans.phonemes.resize(audio->num_phonemes);
+    for (int32_t i = 0; i < audio->num_phonemes; ++i) {
+      ans.phonemes[i].phoneme = audio->phonemes[i].phoneme;
+      ans.phonemes[i].id = audio->phonemes[i].id;
+      ans.phonemes[i].start_second = audio->phonemes[i].start_second;
+      ans.phonemes[i].end_second = audio->phonemes[i].end_second;
+    }
+  }
+  // =================================================
+    
   SherpaOnnxDestroyOfflineTtsGeneratedAudio(audio);
   return ans;
 }
@@ -641,6 +663,19 @@ GeneratedAudio OfflineTts::Generate(const std::string &text,
 
   ans.samples = std::vector<float>{audio->samples, audio->samples + audio->n};
   ans.sample_rate = audio->sample_rate;
+
+  // ========== Phoneme timing adaptation ==========
+  if (audio->phonemes && audio->num_phonemes > 0) {
+    ans.phonemes.resize(audio->num_phonemes);
+    for (int32_t i = 0; i < audio->num_phonemes; ++i) {
+      ans.phonemes[i].phoneme = audio->phonemes[i].phoneme;
+      ans.phonemes[i].id = audio->phonemes[i].id;
+      ans.phonemes[i].start_second = audio->phonemes[i].start_second;
+      ans.phonemes[i].end_second = audio->phonemes[i].end_second;
+    }
+  }
+  // =================================================
+    
   SherpaOnnxDestroyOfflineTtsGeneratedAudio(audio);
   return ans;
 }
@@ -653,7 +688,9 @@ std::shared_ptr<GeneratedAudio> OfflineTts::Generate2(
   GeneratedAudio *ans = new GeneratedAudio;
   ans->samples = std::move(audio.samples);
   ans->sample_rate = audio.sample_rate;
-
+  // ========== Phoneme timing adaptation ==========
+  ans->phonemes = std::move(audio.phonemes);  
+  // =================================================
   return std::shared_ptr<GeneratedAudio>(ans);
 }
 
@@ -665,7 +702,9 @@ std::shared_ptr<GeneratedAudio> OfflineTts::Generate2(
   GeneratedAudio *ans = new GeneratedAudio;
   ans->samples = std::move(audio.samples);
   ans->sample_rate = audio.sample_rate;
-
+  // ========== Phoneme timing adaptation ==========
+  ans->phonemes = std::move(audio.phonemes);  
+  // =================================================
   return std::shared_ptr<GeneratedAudio>(ans);
 }
 
