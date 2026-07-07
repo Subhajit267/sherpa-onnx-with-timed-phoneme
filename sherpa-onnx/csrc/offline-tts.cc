@@ -1,7 +1,12 @@
 // sherpa-onnx/csrc/offline-tts.cc
 //
 // Copyright (c)  2023  Xiaomi Corporation
-
+//
+// Phoneme timing adaptation:
+//   Added BuildTimedPhonemes() helper and, in each Generate() overload,
+//   if enable_timed_phonemes is set and the model has a frontend,
+//   phoneme spans are converted to timed phonemes using uniform
+//   token durations.  This works for all TTS models.
 #include "sherpa-onnx/csrc/offline-tts.h"
 
 #include <cmath>
@@ -21,6 +26,7 @@
 
 #include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/macros.h"
+#include "sherpa-onnx/csrc/offline-tts-frontend.h"  // for PhonemeSpan
 #include "sherpa-onnx/csrc/offline-tts-impl.h"
 #include "sherpa-onnx/csrc/text-utils.h"
 
@@ -30,6 +36,32 @@ struct SilenceInterval {
   int32_t start;
   int32_t end;
 };
+
+// ========== Phoneme timing helper (added) ==========
+static std::vector<TimedPhoneme> BuildTimedPhonemes(
+    const std::vector<PhonemeSpan> &spans,
+    int32_t total_tokens,
+    int32_t num_audio_samples,
+    float sample_rate) {
+  if (spans.empty() || total_tokens <= 0 || num_audio_samples == 0)
+    return {};
+
+  float total_duration = num_audio_samples / sample_rate;
+  float duration_per_token = total_duration / total_tokens;
+
+  std::vector<TimedPhoneme> result;
+  int32_t id = 1;
+  for (const auto &span : spans) {
+    TimedPhoneme tp;
+    tp.phoneme = span.phoneme;
+    tp.id = id++;
+    tp.start_second = span.start_token * duration_per_token;
+    tp.end_second = span.end_token * duration_per_token;
+    result.push_back(tp);
+  }
+  return result;
+}
+// ====================================================
 
 GeneratedAudio GeneratedAudio::ScaleSilence(float scale) const {
   if (scale == 1) {
@@ -174,6 +206,12 @@ void OfflineTtsConfig::Register(ParseOptions *po) {
   po->Register("tts-silence-scale", &silence_scale,
                "Duration of the pause is scaled by this number. So a smaller "
                "value leads to a shorter pause.");
+
+  // ========== Phoneme timing adaptation ==========
+  po->Register("tts-enable-timed-phonemes", &enable_timed_phonemes,
+               "If true, GeneratedAudio will contain a timed phoneme list "
+               "for each generated utterance. Used for avatar lip‑sync.");
+  // =================================================
 }
 
 bool OfflineTtsConfig::Validate() const {
@@ -215,31 +253,39 @@ std::string OfflineTtsConfig::ToString() const {
   os << "rule_fsts=\"" << rule_fsts << "\", ";
   os << "rule_fars=\"" << rule_fars << "\", ";
   os << "max_num_sentences=" << max_num_sentences << ", ";
-  os << "silence_scale=" << silence_scale << ")";
+  os << "silence_scale=" << silence_scale << ", ";
+  os << "enable_timed_phonemes=" << (enable_timed_phonemes ? "true" : "false")
+     << ")";
 
   return os.str();
 }
 
+// ========== Constructor now stores config ==========
 OfflineTts::OfflineTts(const OfflineTtsConfig &config)
-    : impl_(OfflineTtsImpl::Create(config)) {}
+    : config_(config), impl_(OfflineTtsImpl::Create(config)) {}
 
 template <typename Manager>
 OfflineTts::OfflineTts(Manager *mgr, const OfflineTtsConfig &config)
-    : impl_(OfflineTtsImpl::Create(mgr, config)) {}
+    : config_(config), impl_(OfflineTtsImpl::Create(mgr, config)) {}
+// ===================================================
 
 OfflineTts::~OfflineTts() = default;
 
+// ------------------------------------------------------------------
+// Overload 1: simple sid/speed
+// ------------------------------------------------------------------
 GeneratedAudio OfflineTts::Generate(
     const std::string &text, int64_t sid /*=0*/, float speed /*= 1.0*/,
     GeneratedAudioCallback callback /*= nullptr*/) const {
   GenerationConfig config;
   config.sid = static_cast<int32_t>(sid);
   config.speed = speed;
+  GeneratedAudio ans;
 #if !defined(_WIN32)
-  return impl_->Generate(text, config, std::move(callback));
+  ans = impl_->Generate(text, config, std::move(callback));
 #else
   if (IsUtf8(text)) {
-    return impl_->Generate(text, config, std::move(callback));
+    ans = impl_->Generate(text, config, std::move(callback));
   } else if (IsGB2312(text)) {
     auto utf8_text = Gb2312ToUtf8(text);
     static bool printed = false;
@@ -248,16 +294,37 @@ GeneratedAudio OfflineTts::Generate(
           "Detected GB2312 encoded string! Converting it to UTF8.");
       printed = true;
     }
-    return impl_->Generate(utf8_text, config, std::move(callback));
+    ans = impl_->Generate(utf8_text, config, std::move(callback));
   } else {
     SHERPA_ONNX_LOGE(
         "Non UTF8 encoded string is received. You would not get expected "
         "results!");
-    return impl_->Generate(text, config, std::move(callback));
+    ans = impl_->Generate(text, config, std::move(callback));
   }
 #endif
+
+  // ========== Phoneme timing adaptation ==========
+  if (config_.enable_timed_phonemes) {
+    auto *frontend = impl_->GetFrontend();
+    if (frontend) {
+      auto spans = frontend->ConvertTextToPhonemeSpans(text, "");
+      if (!spans.empty()) {
+        int32_t total_tokens = 0;
+        for (const auto &s : spans)
+          if (s.end_token > total_tokens) total_tokens = s.end_token;
+        ans.phonemes = BuildTimedPhonemes(spans, total_tokens,
+                                          ans.samples.size(),
+                                          ans.sample_rate);
+      }
+    }
+  }
+  // =================================================
+  return ans;
 }
 
+// ------------------------------------------------------------------
+// Overload 2: prompt‑conditioned (deprecated)
+// ------------------------------------------------------------------
 GeneratedAudio OfflineTts::Generate(
     const std::string &text, const std::string &prompt_text,
     const std::vector<float> &prompt_samples, int32_t sample_rate,
@@ -269,8 +336,9 @@ GeneratedAudio OfflineTts::Generate(
   config.reference_sample_rate = sample_rate;
   config.reference_text = prompt_text;
   config.num_steps = num_steps;
+  GeneratedAudio ans;
 #if !defined(_WIN32)
-  return impl_->Generate(text, config, std::move(callback));
+  ans = impl_->Generate(text, config, std::move(callback));
 #else
   static bool printed = false;
   auto utf8_text = text;
@@ -292,24 +360,46 @@ GeneratedAudio OfflineTts::Generate(
   }
   config.reference_text = utf8_prompt_text;
   if (IsUtf8(utf8_text) && IsUtf8(utf8_prompt_text)) {
-    return impl_->Generate(utf8_text, config, std::move(callback));
+    ans = impl_->Generate(utf8_text, config, std::move(callback));
   } else {
     SHERPA_ONNX_LOGE(
         "Non UTF8 encoded string is received. You would not get expected "
         "results!");
-    return impl_->Generate(utf8_text, config, std::move(callback));
+    ans = impl_->Generate(utf8_text, config, std::move(callback));
   }
 #endif
+
+  // ========== Phoneme timing adaptation ==========
+  if (config_.enable_timed_phonemes) {
+    auto *frontend = impl_->GetFrontend();
+    if (frontend) {
+      auto spans = frontend->ConvertTextToPhonemeSpans(text, "");
+      if (!spans.empty()) {
+        int32_t total_tokens = 0;
+        for (const auto &s : spans)
+          if (s.end_token > total_tokens) total_tokens = s.end_token;
+        ans.phonemes = BuildTimedPhonemes(spans, total_tokens,
+                                          ans.samples.size(),
+                                          ans.sample_rate);
+      }
+    }
+  }
+  // =================================================
+  return ans;
 }
 
+// ------------------------------------------------------------------
+// Overload 3: GenerationConfig (the preferred modern API)
+// ------------------------------------------------------------------
 GeneratedAudio OfflineTts::Generate(
     const std::string &text, const GenerationConfig &config,
     GeneratedAudioCallback callback /*= nullptr*/) const {
+  GeneratedAudio ans;
 #if !defined(_WIN32)
-  return impl_->Generate(text, config, std::move(callback));
+  ans = impl_->Generate(text, config, std::move(callback));
 #else
   if (IsUtf8(text)) {
-    return impl_->Generate(text, config, std::move(callback));
+    ans = impl_->Generate(text, config, std::move(callback));
   } else if (IsGB2312(text)) {
     auto utf8_text = Gb2312ToUtf8(text);
     static bool printed = false;
@@ -318,14 +408,32 @@ GeneratedAudio OfflineTts::Generate(
           "Detected GB2312 encoded string! Converting it to UTF8.");
       printed = true;
     }
-    return impl_->Generate(utf8_text, config, std::move(callback));
+    ans = impl_->Generate(utf8_text, config, std::move(callback));
   } else {
     SHERPA_ONNX_LOGE(
         "Non UTF8 encoded string is received. You would not get expected "
         "results!");
-    return impl_->Generate(text, config, std::move(callback));
+    ans = impl_->Generate(text, config, std::move(callback));
   }
 #endif
+
+  // ========== Phoneme timing adaptation ==========
+  if (config_.enable_timed_phonemes) {
+    auto *frontend = impl_->GetFrontend();
+    if (frontend) {
+      auto spans = frontend->ConvertTextToPhonemeSpans(text, "");
+      if (!spans.empty()) {
+        int32_t total_tokens = 0;
+        for (const auto &s : spans)
+          if (s.end_token > total_tokens) total_tokens = s.end_token;
+        ans.phonemes = BuildTimedPhonemes(spans, total_tokens,
+                                          ans.samples.size(),
+                                          ans.sample_rate);
+      }
+    }
+  }
+  // =================================================
+  return ans;
 }
 
 int32_t OfflineTts::SampleRate() const { return impl_->SampleRate(); }
