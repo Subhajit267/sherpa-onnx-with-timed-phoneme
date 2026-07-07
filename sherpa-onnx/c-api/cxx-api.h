@@ -1,6 +1,12 @@
 // sherpa-onnx/c-api/cxx-api.h
 //
 // Copyright (c)  2024  Xiaomi Corporation
+
+// Phoneme timing adaptation:
+//   Added TimedPhoneme struct and phonemes vector in GeneratedAudio.
+//   When enableTimedPhonemes is set in OfflineTtsConfig, the TTS engine
+//   populates this vector with timed phoneme data for lip‑sync.
+
 /**
  * @file cxx-api.h
  * @brief Public C++ wrapper for the sherpa-onnx C API.
@@ -253,6 +259,20 @@ struct OnlineRecognizerResult {
   /** JSON representation of the result. */
   std::string json;
 };
+
+// ========== Phoneme timing structures (added) ==========
+/** @brief Timed phoneme ready for lip‑sync.
+ *
+ *  id is a 1‑based sequential identifier.
+ *  start_second and end_second are relative to the generated audio.
+ */
+struct TimedPhoneme {
+  std::string phoneme;
+  int32_t id;
+  float start_second;
+  float end_second;
+};
+// ========================================================
 
 /** @brief Mono PCM waveform used by the helper I/O functions. */
 struct Wave {
@@ -1046,6 +1066,9 @@ struct OfflineTtsConfig {
   int32_t max_num_sentences = 1;
   /** Silence scale between generated sentences. */
   float silence_scale = 0.2;
+  // ========== Phoneme timing adaptation ==========
+  bool enable_timed_phonemes = false;
+  // =================================================
 };
 
 /** @brief Generated audio returned by the C++ TTS wrapper. */
@@ -1054,6 +1077,10 @@ struct GeneratedAudio {
   std::vector<float> samples;
   /** Output sample rate in Hz. */
   int32_t sample_rate = 0;
+  // ========== Phoneme timing adaptation ==========
+  /** Optional timed phoneme sequence. Empty if not requested or unavailable. */
+  std::vector<TimedPhoneme> phonemes;
+  // =================================================
 };
 
 /**
