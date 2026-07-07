@@ -1,9 +1,15 @@
 // sherpa-onnx/csrc/offline-tts-frontend.h
 //
 // Copyright (c)  2023  Xiaomi Corporation
-
+//
+// Phoneme timing adaptation:
+//   Added ConvertTextToPhonemeSpans() virtual method.  Any frontend that
+//   can produce phoneme spans (e.g. Piper phonemize) overrides it.
+//   The default returns an empty vector so the feature degrades gracefully
+//   for models that do not natively expose phonemes.
 #ifndef SHERPA_ONNX_CSRC_OFFLINE_TTS_FRONTEND_H_
 #define SHERPA_ONNX_CSRC_OFFLINE_TTS_FRONTEND_H_
+
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -11,6 +17,7 @@
 #include <vector>
 
 #include "sherpa-onnx/csrc/macros.h"
+#include "sherpa-onnx/csrc/offline-tts.h"  // for PhonemeSpan
 
 namespace sherpa_onnx {
 
@@ -53,6 +60,26 @@ class OfflineTtsFrontend {
    */
   virtual std::vector<TokenIDs> ConvertTextToTokenIds(
       const std::string &text, const std::string &voice = "") const = 0;
+
+  // ========== Phoneme timing adaptation ==========
+  /** Convert text to phoneme spans that map phonemes to token indices.
+   *
+   *  Each PhonemeSpan records a phoneme string and the range of token
+   *  indices that correspond to it.  The token indices refer to the
+   *  flattened token sequence produced by ConvertTextToTokenIds().
+   *
+   *  The default implementation returns an empty vector, which means
+   *  the frontend cannot provide phoneme information.
+   *
+   *  @param text  Input text (same as for ConvertTextToTokenIds).
+   *  @param voice Optional voice parameter for espeak-ng.
+   *  @return Ordered list of PhonemeSpan, or empty if unsupported.
+   */
+  virtual std::vector<PhonemeSpan> ConvertTextToPhonemeSpans(
+      const std::string &text, const std::string &voice = "") const {
+    return {};
+  }
+  // =================================================
 };
 
 // implementation is in ./piper-phonemize-lexicon.cc
