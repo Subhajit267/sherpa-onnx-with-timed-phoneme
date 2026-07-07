@@ -1,6 +1,10 @@
 // sherpa-onnx/csrc/offline-tts-kokoro-impl.h
 //
 // Copyright (c)  2025  Xiaomi Corporation
+//
+// Phoneme timing adaptation:
+//   Added GetFrontend() override to expose the frontend pointer so that
+//   the shared timing logic in OfflineTts can retrieve phoneme spans.
 #ifndef SHERPA_ONNX_CSRC_OFFLINE_TTS_KOKORO_IMPL_H_
 #define SHERPA_ONNX_CSRC_OFFLINE_TTS_KOKORO_IMPL_H_
 
@@ -363,6 +367,15 @@ class OfflineTtsKokoroImpl : public OfflineTtsImpl {
 
     return Generate(text, gen_config, std::move(callback));
   }
+
+  // ========== Phoneme timing adaptation ==========
+  /** Returns a pointer to the frontend. Used by OfflineTts to obtain
+   *  phoneme spans for timed phoneme output.
+   */
+  OfflineTtsFrontend *GetFrontend() const override {
+    return frontend_.get();
+  }
+  // =================================================
 
  private:
   template <typename Manager>
