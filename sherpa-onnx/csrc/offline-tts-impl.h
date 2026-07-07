@@ -1,7 +1,11 @@
 // sherpa-onnx/csrc/offline-tts-impl.h
 //
 // Copyright (c)  2023  Xiaomi Corporation
-
+//
+// Phoneme timing adaptation:
+//   Added GetFrontend() pure virtual method so that the shared timing logic
+//   in OfflineTts can retrieve phoneme spans from the model's frontend.
+//   Every concrete implementation must override this method.
 #ifndef SHERPA_ONNX_CSRC_OFFLINE_TTS_IMPL_H_
 #define SHERPA_ONNX_CSRC_OFFLINE_TTS_IMPL_H_
 
@@ -14,6 +18,8 @@
 #include "sherpa-onnx/csrc/offline-tts.h"
 
 namespace sherpa_onnx {
+
+class OfflineTtsFrontend;  // forward declaration
 
 class OfflineTtsImpl {
  public:
@@ -59,6 +65,14 @@ class OfflineTtsImpl {
 
   std::vector<int64_t> AddBlank(const std::vector<int64_t> &x,
                                 int32_t blank_id = 0) const;
+
+  // ========== Phoneme timing adaptation ==========
+  /** Return a pointer to the frontend owned by this implementation.
+   *  May return nullptr if the model has no frontend (rare).
+   *  The caller does not own the pointer.
+   */
+  virtual OfflineTtsFrontend *GetFrontend() const = 0;
+  // =================================================
 };
 
 }  // namespace sherpa_onnx
