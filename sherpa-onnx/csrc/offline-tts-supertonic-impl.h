@@ -43,6 +43,11 @@ class OfflineTtsSupertonicImpl : public OfflineTtsImpl {
       const std::string &text, const GenerationConfig &config,
       GeneratedAudioCallback callback = nullptr) const override;
 
+  // ========== Phoneme timing adaptation ==========
+  /** Supertonic does not use an OfflineTtsFrontend; returns nullptr. */
+  OfflineTtsFrontend *GetFrontend() const override { return nullptr; }
+  // =================================================
+
  private:
   GeneratedAudio Process(const std::string &text, const std::string &lang,
                          int64_t sid, int32_t num_steps, float speed,
