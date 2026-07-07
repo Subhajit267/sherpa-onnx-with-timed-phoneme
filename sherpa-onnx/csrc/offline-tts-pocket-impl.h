@@ -1,6 +1,10 @@
 // sherpa-onnx/csrc/offline-tts-pocket-impl.h
 //
 // Copyright (c)  2026  Xiaomi Corporation
+//
+// Phoneme timing adaptation:
+//   Added GetFrontend() override returning nullptr because Pocket TTS
+//   does not use an OfflineTtsFrontend (it tokenizes text directly).
 #ifndef SHERPA_ONNX_CSRC_OFFLINE_TTS_POCKET_IMPL_H_
 #define SHERPA_ONNX_CSRC_OFFLINE_TTS_POCKET_IMPL_H_
 
@@ -282,6 +286,11 @@ class OfflineTtsPocketImpl : public OfflineTtsImpl {
 
     return result;
   }
+
+  // ========== Phoneme timing adaptation ==========
+  /** Pocket TTS does not use an OfflineTtsFrontend; returns nullptr. */
+  OfflineTtsFrontend *GetFrontend() const override { return nullptr; }
+  // =================================================
 
   static size_t ComputeHash(const float *p, size_t n) {
     size_t hash = 0;
