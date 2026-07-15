@@ -51,6 +51,7 @@ set(srcs
   src/wave-reader.cc
   src/wave-writer.cc
   src/resampler.cc
+  src/tts-playback.cc
 )
 
 if(NOT DEFINED ENV{SHERPA_ONNX_INSTALL_DIR})
@@ -82,6 +83,9 @@ include_directories(${NODE_ADDON_API_DIR})
 
 link_directories($ENV{SHERPA_ONNX_INSTALL_DIR}/lib)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PIPEWIRE REQUIRED IMPORTED_TARGET libpipewire-0.3)
+
 add_library(${PROJECT_NAME} SHARED ${srcs} ${CMAKE_JS_SRC})
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
 target_link_libraries(${PROJECT_NAME} ${CMAKE_JS_LIB})
@@ -89,6 +93,7 @@ target_link_libraries(${PROJECT_NAME} ${CMAKE_JS_LIB})
 target_link_libraries(${PROJECT_NAME}
   sherpa-onnx-c-api
   onnxruntime
+  PkgConfig::PIPEWIRE
   -Wl,-rpath,$ENV{SHERPA_ONNX_INSTALL_DIR}/lib
   -Wl,-rpath,${SHERPA_ONNX_RPATH_ORIGIN}
 )
